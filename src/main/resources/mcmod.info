@@ -1,0 +1,16 @@
+[
+{
+  "modid": "ZMQForgeWrapper",
+  "name": "ZMQ Forge Wrapper",
+  "description": "Executes java classes submitted via ZeroMQ",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["core"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]

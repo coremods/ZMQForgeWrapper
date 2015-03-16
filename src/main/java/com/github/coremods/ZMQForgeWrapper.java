@@ -1,6 +1,8 @@
 package com.github.coremods;
 
 import java.nio.charset.Charset;
+import java.util.List;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.mdkt.compiler.InMemoryJavaCompiler;
@@ -9,6 +11,7 @@ import org.zeromq.ZFrame;
 import org.zeromq.ZMQ;
 import org.zeromq.ZMQ.Socket;
 import org.zeromq.ZMsg;
+
 import com.google.gson.Gson;
 
 import net.minecraftforge.common.config.Configuration;
@@ -27,7 +30,7 @@ public class ZMQForgeWrapper {
 
   private static final Logger logger = LogManager.getLogger(ZMQForgeWrapper.class);
 
-  private static final Charset CHARSET = Charset.forName("UTF-8");
+  private static final Charset UTF_8 = Charset.forName("UTF-8");
   private static final String DEFAULT_ZMQ_ADDRESS = "tcp://*:5570";
   private static final int DEFAULT_MAX_COMMANDS_PER_TICK = 0;
 
@@ -72,6 +75,11 @@ public class ZMQForgeWrapper {
   private Gson gson;
   private int maxCommandsPerTick;
 
+  private class ExecutionRequest {
+    public List<String> imports;
+    public String callMethodBody;
+  }
+
   @SubscribeEvent
   public void servertick(ServerTickEvent event) {
 
@@ -83,29 +91,36 @@ public class ZMQForgeWrapper {
       assert (content != null);
       msg.destroy();
 
-      byte[] data = content.getData();
-      String req = new String(data);
-      logger.info("server got request: " + req);
+      if (content.hasData()) {
+        try {
 
-      StringBuilder sourceCode = new StringBuilder();
-      sourceCode.append("public class Execution { public Object call() { \n");
-      sourceCode.append(req);
-      sourceCode.append("\n}}");
+          String req = new String(content.getData(), UTF_8);
 
-      try {
-        Class<?> helloClass = InMemoryJavaCompiler.compile("Execution", sourceCode.toString());
-        Object result = helloClass.getMethod("call").invoke(helloClass.newInstance());
+          ExecutionRequest executionRequest = gson.fromJson(req, ExecutionRequest.class);
+          logger.info("server got request: " + req);
 
-        String replyString = req + " == " + gson.toJson(result);
-        ZFrame reply = new ZFrame(replyString.getBytes(CHARSET));
-        address.send(zmqServerSocket, ZFrame.REUSE + ZFrame.MORE);
-        reply.send(zmqServerSocket, ZFrame.REUSE);
-        reply.destroy();
+          StringBuilder sourceCode = new StringBuilder();
+          for (String imp : executionRequest.imports) {
+            sourceCode.append(imp);
+            sourceCode.append(";\n");
+          }
+          sourceCode.append("public class Execution { public Object call() { \n");
+          sourceCode.append(executionRequest.callMethodBody);
+          sourceCode.append("\n}}");
 
-      } catch (Exception e) {
-        logger.warn(e, e);
+          Class<?> helloClass = InMemoryJavaCompiler.compile("Execution", sourceCode.toString());
+          Object result = helloClass.getMethod("call").invoke(helloClass.newInstance());
+
+          String replyString = req + " == " + gson.toJson(result);
+          ZFrame reply = new ZFrame(replyString.getBytes(UTF_8));
+          address.send(zmqServerSocket, ZFrame.REUSE + ZFrame.MORE);
+          reply.send(zmqServerSocket, ZFrame.REUSE);
+          reply.destroy();
+
+        } catch (Exception e) {
+          logger.warn(e, e);
+        }
       }
-
       address.destroy();
       content.destroy();
 

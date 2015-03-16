@@ -1,55 +1,35 @@
 package com.github.coremods;
 
 import java.nio.charset.Charset;
-import java.util.Random;
-
-import javax.annotation.PreDestroy;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.mdkt.compiler.InMemoryJavaCompiler;
 import org.zeromq.ZContext;
 import org.zeromq.ZFrame;
 import org.zeromq.ZMQ;
-import org.zeromq.ZMQ.Context;
-import org.zeromq.ZMQ.PollItem;
 import org.zeromq.ZMQ.Socket;
 import org.zeromq.ZMsg;
-import org.zeromq.ZMQ.Poller;
-
 import com.google.gson.Gson;
 
-import java.util.Random;
-
-import net.minecraft.block.Block;
-import net.minecraft.client.Minecraft;
-import net.minecraft.init.Blocks;
-import net.minecraft.world.World;
-import net.minecraft.world.WorldServer;
-import net.minecraft.world.chunk.IChunkProvider;
-import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.common.config.Configuration;
-import cpw.mods.fml.common.IWorldGenerator;
+import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.Mod.EventHandler;
 import cpw.mods.fml.common.Mod.Instance;
-import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
-import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent;
-import cpw.mods.fml.common.registry.GameRegistry;
 
-@Mod(modid = "ZMQForgeWrapper", name = "ZMQForgeWrapper", version = "0.1.0")
+@Mod(modid = "ZMQForgeWrapper", name = "ZMQForgeWrapper", version = "0.1.1")
 public class ZMQForgeWrapper {
-
-  private static final Charset CHARSET = Charset.forName("UTF-8");
 
   private static final Logger logger = LogManager.getLogger(ZMQForgeWrapper.class);
 
+  private static final Charset CHARSET = Charset.forName("UTF-8");
   private static final String DEFAULT_ZMQ_ADDRESS = "tcp://*:5570";
+  private static final int DEFAULT_MAX_COMMANDS_PER_TICK = 0;
 
   @Instance(value = "ZMQForgeWrapper")
   public static ZMQForgeWrapper instance;
@@ -62,6 +42,9 @@ public class ZMQForgeWrapper {
     zmqAddress =
         config.get("ZMQForgeWrapper", "zmqAddress", DEFAULT_ZMQ_ADDRESS, "ZeroMQ bind address")
             .getString();
+    maxCommandsPerTick =
+        config.get("ZMQForgeWrapper", "maxCommandsPerTick", DEFAULT_MAX_COMMANDS_PER_TICK,
+            "Maximum number of commands to execute per tick (0 for unlimited)").getInt();
     config.save();
   }
 
@@ -74,6 +57,7 @@ public class ZMQForgeWrapper {
 
     gson = new Gson();
 
+    FMLCommonHandler.instance().bus().register(this);
   }
 
   @EventHandler
@@ -86,10 +70,12 @@ public class ZMQForgeWrapper {
   private Socket zmqServerSocket;
   private String zmqAddress;
   private Gson gson;
+  private int maxCommandsPerTick;
 
   @SubscribeEvent
   public void servertick(ServerTickEvent event) {
 
+    long executedCommands = 0;
     ZMsg msg;
     while ((msg = ZMsg.recvMsg(zmqServerSocket, ZMQ.DONTWAIT)) != null) {
       ZFrame address = msg.pop();
@@ -123,6 +109,9 @@ public class ZMQForgeWrapper {
       address.destroy();
       content.destroy();
 
+      if (maxCommandsPerTick > 0 && ++executedCommands >= maxCommandsPerTick) {
+        break;
+      }
     }
 
   }

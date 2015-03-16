@@ -17,7 +17,7 @@ buildscript {
 
 apply plugin: 'forge'
 
-version = "0.1.0"
+version = "0.1.1"
 group= "com.github.coremods"
 archivesBaseName = "ZMQForgeWrapper"
 
@@ -76,10 +76,6 @@ task sourceJar(type: Jar) {
 task deobfJar(type: Jar) {
     from sourceSets.main.output
     classifier = 'deobf'
-}
-
-jar {
-    from configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
 }
 
 // make sure all of these happen when we run build

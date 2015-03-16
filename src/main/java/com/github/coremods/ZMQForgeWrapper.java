@@ -2,6 +2,9 @@ package com.github.coremods;
 
 import java.nio.charset.Charset;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -25,7 +28,7 @@ import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent.ServerTickEvent;
 
-@Mod(modid = "ZMQForgeWrapper", name = "ZMQForgeWrapper", version = "0.1.1")
+@Mod(modid = "ZMQForgeWrapper", name = "ZMQForgeWrapper", version = "0.1.2")
 public class ZMQForgeWrapper {
 
   private static final Logger logger = LogManager.getLogger(ZMQForgeWrapper.class);
@@ -33,6 +36,7 @@ public class ZMQForgeWrapper {
   private static final Charset UTF_8 = Charset.forName("UTF-8");
   private static final String DEFAULT_ZMQ_ADDRESS = "tcp://*:5570";
   private static final int DEFAULT_MAX_COMMANDS_PER_TICK = 0;
+  private static final int DEFAULT_COMMAND_TIMEOUT_MICROSECONDS = 0;
 
   @Instance(value = "ZMQForgeWrapper")
   public static ZMQForgeWrapper instance;
@@ -48,6 +52,10 @@ public class ZMQForgeWrapper {
     maxCommandsPerTick =
         config.get("ZMQForgeWrapper", "maxCommandsPerTick", DEFAULT_MAX_COMMANDS_PER_TICK,
             "Maximum number of commands to execute per tick (0 for unlimited)").getInt();
+    commandTimeoutMicroSeconds =
+        config.get("ZMQForgeWrapper", "commandTimeoutMicroseconds", DEFAULT_MAX_COMMANDS_PER_TICK,
+            "Maximum execution time per command in microseconds (0 for unlimited) [unused!]")
+            .getInt();
     config.save();
   }
 
@@ -58,7 +66,11 @@ public class ZMQForgeWrapper {
     zmqServerSocket = zmqContext.createSocket(ZMQ.ROUTER);
     zmqServerSocket.bind(zmqAddress);
 
+    logger.info("Started ZMQ Server on " + zmqAddress);
+
     gson = new Gson();
+
+    commandExecutor = Executors.newSingleThreadExecutor();
 
     FMLCommonHandler.instance().bus().register(this);
   }
@@ -74,6 +86,8 @@ public class ZMQForgeWrapper {
   private String zmqAddress;
   private Gson gson;
   private int maxCommandsPerTick;
+  private int commandTimeoutMicroSeconds;
+  private ExecutorService commandExecutor;
 
   private class ExecutionRequest {
     public List<String> imports;
@@ -108,10 +122,16 @@ public class ZMQForgeWrapper {
           sourceCode.append(executionRequest.callMethodBody);
           sourceCode.append("\n}}");
 
-          Class<?> helloClass = InMemoryJavaCompiler.compile("Execution", sourceCode.toString());
+          String fullSource = sourceCode.toString();
+
+          logger.info("Executing the following class: " + fullSource);
+
+          Class<?> helloClass = InMemoryJavaCompiler.compile("Execution", fullSource);
           Object result = helloClass.getMethod("call").invoke(helloClass.newInstance());
 
-          String replyString = req + " == " + gson.toJson(result);
+          String replyString = gson.toJson(result);
+
+          logger.info("Returning result: " + replyString);
           ZFrame reply = new ZFrame(replyString.getBytes(UTF_8));
           address.send(zmqServerSocket, ZFrame.REUSE + ZFrame.MORE);
           reply.send(zmqServerSocket, ZFrame.REUSE);
